@@ -1,2 +1,3 @@
-# prog2
-helper files for the intro cg class's second programming assignment
+# prog3
+
+helper files for the intro cg class's third programming assignment
