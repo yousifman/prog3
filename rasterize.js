@@ -150,11 +150,13 @@ function setupShaders() {
         console.log(e);
     } // end catch
 } // end setup shaders
-
+var bgColor = 0;
 // render the loaded model
 function renderTriangles() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
-    
+    bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
+    gl.clearColor(bgColor, 0, 0, 1.0);
+    requestAnimationFrame(renderTriangles);
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate
     gl.vertexAttribPointer(vertexPositionAttrib,3,gl.FLOAT,false,0,0); // feed
