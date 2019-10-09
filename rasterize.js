@@ -13,7 +13,9 @@ var gl = null; // the all powerful gl object. It's all here folks!
 var vertexBuffer; // this contains vertex coordinates in triples
 var triangleBuffer; // this contains indices into vertexBuffer in triples
 var triBufferSize; // the number of indices in the triangle buffer
+var altPosition; // flag indicating whether to alter vertex positions
 var vertexPositionAttrib; // where to put position for vertex shader
+var altPositionUniform; // where to put altPosition flag for vertex shader
 
 
 // ASSIGNMENT HELPER FUNCTIONS
@@ -106,9 +108,13 @@ function setupShaders() {
     // define vertex shader in essl using es6 template strings
     var vShaderCode = `
         attribute vec3 vertexPosition;
+        uniform bool altPosition;
 
         void main(void) {
-            gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
+            if(altPosition)
+                gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
+            else
+                gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
         }
     `;
     
@@ -142,6 +148,8 @@ function setupShaders() {
                 vertexPositionAttrib = // get pointer to vertex shader input
                     gl.getAttribLocation(shaderProgram, "vertexPosition"); 
                 gl.enableVertexAttribArray(vertexPositionAttrib); // input to shader from array
+                altPositionUniform = // get pointer to altPosition flag
+                    gl.getUniformLocation(shaderProgram, "altPosition");
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try 
@@ -149,6 +157,11 @@ function setupShaders() {
     catch(e) {
         console.log(e);
     } // end catch
+    altPosition = false;
+    setTimeout(function alterPosition() {
+        altPosition = !altPosition;
+        setTimeout(alterPosition, 2000);
+    }, 2000); // switch flag value every 2 seconds
 } // end setup shaders
 var bgColor = 0;
 // render the loaded model
@@ -160,6 +173,7 @@ function renderTriangles() {
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate
     gl.vertexAttribPointer(vertexPositionAttrib,3,gl.FLOAT,false,0,0); // feed
+    gl.uniform1i(altPositionUniform, altPosition); // feed
 
     gl.drawArrays(gl.TRIANGLES,0,3); // render
 } // end render triangles
