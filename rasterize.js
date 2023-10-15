@@ -207,13 +207,27 @@ function setupShaders() {
         uniform vec3 lightSpecular;
 
         void main(void) {
-
-            // Shader will not compile if not all attributes are used. This is temporary.
-            vec3 a = fragAmbientColor + fragDiffuseColor + fragSpecularColor; 
-            vec3 b = fragVertexPosition + fragVertexNormal;
-            float c = fragSpecularPower;
-
-            gl_FragColor = vec4(fragDiffuseColor.r, fragDiffuseColor.g, fragDiffuseColor.b, 1.0); // all fragments are diffuse color
+            vec3 normal = normalize(fragVertexNormal);
+            vec3 lightDirection = normalize(lightPos - fragVertexPosition);
+            vec3 viewDirection = normalize(-fragVertexPosition); // Assuming the eye is at the origin
+        
+            // Calculate ambient component
+            vec3 ambient = lightAmbient * fragAmbientColor;
+        
+            // Calculate diffuse component
+            float lambertian = max(dot(normal, lightDirection), 0.0);
+            vec3 diffuse = lightDiffuse * fragDiffuseColor * lambertian;
+        
+            // Calculate specular component (Blinn-Phong)
+            vec3 halfVector = normalize(lightDirection + viewDirection);
+            float specularAngle = max(dot(normal, halfVector), 0.0);
+            float specularComponent = pow(specularAngle, fragSpecularPower);
+            vec3 specular = lightSpecular * fragSpecularColor * specularComponent;
+        
+            // Combine ambient, diffuse, and specular to get the final color
+            vec3 result = ambient + diffuse + specular;
+        
+            gl_FragColor = vec4(result, 1.0);
         }
     `;
     
