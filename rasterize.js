@@ -9,10 +9,10 @@ const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
 //const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
 var Eye = new vec4.fromValues(0.5,0.5,-0.5,1.0); // default eye position in world space
-var lightPos = new vec3.fromValues(-0.5,1.5,-0.5);
-var lightAmbient = new vec3.fromValues(1.0,1.0,1.0);
-var lightDiffuse = new vec3.fromValues(1.0,1.0,1.0);
-var lightSpecular = new vec3.fromValues(1.0,1.0,1.0);
+var lightPos = new Float32Array([-0.5, 1.5, -0.5]);
+var lightAmbient = new Float32Array([1.0, 1.0, 1.0]);
+var lightDiffuse = new Float32Array([1.0, 1.0, 1.0]);
+var lightSpecular = new Float32Array([1.0, 1.0, 1.0]);
 
 /* webgl globals */
 var gl = null; // the all powerful gl object. It's all here folks!
@@ -200,7 +200,14 @@ function setupShaders() {
         varying vec3 fragSpecularColor;
         varying float fragSpecularPower;
 
+        // Light data
+        uniform vec3 lightPos;
+        uniform vec3 lightAmbient;
+        uniform vec3 lightDiffuse;
+        uniform vec3 lightSpecular;
+
         void main(void) {
+
             // Shader will not compile if not all attributes are used. This is temporary.
             vec3 a = fragAmbientColor + fragDiffuseColor + fragSpecularColor; 
             vec3 b = fragVertexPosition + fragVertexNormal;
@@ -295,6 +302,14 @@ function setupShaders() {
                 specularPowerAttrib = // get pointer to specular power attribute
                     gl.getAttribLocation(shaderProgram, "specularPower");
                 gl.enableVertexAttribArray(specularPowerAttrib);
+                var lightPosUniform = gl.getUniformLocation(shaderProgram, "lightPos");
+                gl.uniform3fv(lightPosUniform, lightPos);
+                var lightAmbientUniform = gl.getUniformLocation(shaderProgram, "lightAmbient");
+                gl.uniform3fv(lightAmbientUniform, lightAmbient);
+                var lightDiffuseUniform = gl.getUniformLocation(shaderProgram, "lightDiffuse");
+                gl.uniform3fv(lightDiffuseUniform, lightDiffuse);
+                var lightSpecularUniform = gl.getUniformLocation(shaderProgram, "lightSpecular");
+                gl.uniform3fv(lightSpecularUniform, lightSpecular);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try 
