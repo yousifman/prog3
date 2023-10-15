@@ -25,6 +25,7 @@ var normalBuffer; // this contains all the vertex normal vectors
 var ambientColorBuffer; // this contains ambient color values in triples
 var diffuseColorBuffer; // this contains diffuse color values in triples
 var specularColorBuffer; // this contains specular color values in triples
+var specularPowerBuffer; // this contains specular shiniess value
 var altPosition; // flag indicating whether to alter vertex positions
 
 var vertexPositionAttrib; // where to put position for vertex shader
@@ -32,6 +33,7 @@ var vertexNormalAttrib; // where to put normals for vertex shader
 var ambientColorAttrib; // where to put ambient color for vertex shader
 var diffuseColorAttrib; // where to put diffuse color for vertex shader
 var specularColorAttrib; //where to put specular color for vertex shader
+var specularPowerAttrib; //where to put specular shiniess for vertex shader
 var altPositionUniform; // where to put altPosition flag for vertex shader
 
 
@@ -98,6 +100,7 @@ function loadTriangles() {
         var ambientColorArray = []; // 1D array of ambient color values
         var diffuseColorArray = []; // 1D array of diffuse color values
         var specularColorArray = []; // 1D array of specular color values
+        var specularPowerArray = []; // 1D array of specular power values
         var indexArray = []; // 1D array of vertex indices for WebGL
         var vtxBufferSize = 0; // the number of vertices in the vertex buffer
         var vtxToAdd = []; // vtx coords to add to the coord array
@@ -128,6 +131,9 @@ function loadTriangles() {
                 ambientColorArray.push(ambientToAdd[0], ambientToAdd[1], ambientToAdd[2]);
                 diffuseColorArray.push(diffuseToAdd[0], diffuseToAdd[1], diffuseToAdd[2]);
                 specularColorArray.push(specularToAdd[0], specularToAdd[1], specularToAdd[2]);
+
+                // Add specular power data
+                specularPowerArray.push(inputTriangles[whichSet].material.n);
             }
 
             // set up the triangle index array, adjusting indices across sets
@@ -150,11 +156,8 @@ function loadTriangles() {
         normalBuffer = gl.createBuffer(); // init empty normals buffer
         gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffer); // activate buffer
         gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(normalArray),gl.STATIC_DRAW); // components to that buffer
-
-        console.log(coordArray);
-        console.log(normalArray);
         
-        // send the color data to webGL (ambient, diffuse, specular)
+        // send the color data to webGL (ambient, diffuse, specular, n)
         ambientColorBuffer = gl.createBuffer(); // init empty ambient color buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, ambientColorBuffer); // activate that buffer
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ambientColorArray), gl.STATIC_DRAW); // ambient colors to that buffer
@@ -166,6 +169,10 @@ function loadTriangles() {
         specularColorBuffer = gl.createBuffer(); // init empty specular color buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, specularColorBuffer); // activate that buffer
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(specularColorArray), gl.STATIC_DRAW); // specular colors to that buffer
+
+        specularPowerBuffer = gl.createBuffer();// init empty specular power buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER, specularPowerBuffer); // activate that buffer
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(specularPowerArray), gl.STATIC_DRAW); // activate that buffer
 
         // send the triangle indices to webGL
         triangleBuffer = gl.createBuffer(); // init empty triangle index buffer
@@ -185,17 +192,19 @@ function setupShaders() {
 
         // Position Attributes
         varying vec3 fragVertexPosition;
-        varying vec3 fragNormal;
+        varying vec3 fragVertexNormal;
 
         // Color Attributes
         varying vec3 fragAmbientColor;
         varying vec3 fragDiffuseColor;
         varying vec3 fragSpecularColor;
+        varying float fragSpecularPower;
 
         void main(void) {
             // Shader will not compile if not all attributes are used. This is temporary.
             vec3 a = fragAmbientColor + fragDiffuseColor + fragSpecularColor; 
-            vec3 b = fragVertexPosition + fragNormal;
+            vec3 b = fragVertexPosition + fragVertexNormal;
+            float c = fragSpecularPower;
 
             gl_FragColor = vec4(fragDiffuseColor.r, fragDiffuseColor.g, fragDiffuseColor.b, 1.0); // all fragments are diffuse color
         }
@@ -208,7 +217,7 @@ function setupShaders() {
         attribute vec3 vertexNormal;
         // Varying Position Attributes to pass to fragment shader
         varying vec3 fragVertexPosition;
-        varying vec3 fragNormal;
+        varying vec3 fragVertexNormal;
 
         uniform bool altPosition;
 
@@ -216,10 +225,12 @@ function setupShaders() {
         attribute vec3 ambientColor;
         attribute vec3 diffuseColor;
         attribute vec3 specularColor;
+        attribute float specularPower;
         // Varying Color Attributes to pass to fragment shader
         varying vec3 fragAmbientColor;
         varying vec3 fragDiffuseColor;
         varying vec3 fragSpecularColor;
+        varying float fragSpecularPower;
 
         void main(void) {
             if(altPosition)
@@ -228,11 +239,12 @@ function setupShaders() {
                 gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
 
             fragVertexPosition = vertexPosition;
-            fragNormal = vertexNormal;
+            fragVertexNormal = vertexNormal;
 
             fragAmbientColor = ambientColor;
             fragDiffuseColor = diffuseColor;
             fragSpecularColor = specularColor;
+            fragSpecularPower = specularPower;
         }
     `;
     
@@ -280,6 +292,9 @@ function setupShaders() {
                 specularColorAttrib = // get pointer to specular attribute
                     gl.getAttribLocation(shaderProgram, "specularColor");
                 gl.enableVertexAttribArray(specularColorAttrib);
+                specularPowerAttrib = // get pointer to specular power attribute
+                    gl.getAttribLocation(shaderProgram, "specularPower");
+                gl.enableVertexAttribArray(specularPowerAttrib);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try 
@@ -316,6 +331,8 @@ function renderTriangles() {
     gl.vertexAttribPointer(diffuseColorAttrib,3,gl.FLOAT,false,0,0); // feed
     gl.bindBuffer(gl.ARRAY_BUFFER,specularColorBuffer); // activate
     gl.vertexAttribPointer(specularColorAttrib,3,gl.FLOAT,false,0,0); // feed
+    gl.bindBuffer(gl.ARRAY_BUFFER,specularPowerBuffer); // activate
+    gl.vertexAttribPointer(specularPowerAttrib,1,gl.FLOAT,false,0,0); // feed
 
     gl.uniform1i(altPositionUniform, altPosition); // feed
 
