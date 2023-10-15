@@ -5,23 +5,33 @@ const WIN_Z = 0;  // default graphics window z coord in world space
 const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in world space
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
 const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
+// const INPUT_LIGHTS_URL = "https://ncsucgclass.github.io/prog3/lights.json"; // lights file loc
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
 //const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
 var Eye = new vec4.fromValues(0.5,0.5,-0.5,1.0); // default eye position in world space
+var lightPos = new vec3.fromValues(-0.5,1.5,-0.5);
+var lightAmbient = new vec3.fromValues(1.0,1.0,1.0);
+var lightDiffuse = new vec3.fromValues(1.0,1.0,1.0);
+var lightSpecular = new vec3.fromValues(1.0,1.0,1.0);
 
 /* webgl globals */
 var gl = null; // the all powerful gl object. It's all here folks!
-var vertexBuffer; // this contains vertex coordinates in triples
+
 var triangleBuffer; // this contains indices into vertexBuffer in triples
+var triBufferSize; // the number of indices in the triangle buffer
+
+var vertexBuffer; // this contains vertex coordinates in triples
+var normalBuffer; // this contains all the vertex normal vectors
 var ambientColorBuffer; // this contains ambient color values in triples
 var diffuseColorBuffer; // this contains diffuse color values in triples
 var specularColorBuffer; // this contains specular color values in triples
-var triBufferSize; // the number of indices in the triangle buffer
 var altPosition; // flag indicating whether to alter vertex positions
+
 var vertexPositionAttrib; // where to put position for vertex shader
-var ambientColorAttrib; // where to put ambient color for fragment shader
-var diffuseColorAttrib; // where to put diffuse color for framgent shader
-var specularColorAttrib; //where to put specular color for fragment shader
+var vertexNormalAttrib; // where to put normals for vertex shader
+var ambientColorAttrib; // where to put ambient color for vertex shader
+var diffuseColorAttrib; // where to put diffuse color for vertex shader
+var specularColorAttrib; //where to put specular color for vertex shader
 var altPositionUniform; // where to put altPosition flag for vertex shader
 
 
@@ -84,12 +94,14 @@ function loadTriangles() {
         var whichSetVert; // index of vertex in current triangle set
         var whichSetTri; // index of triangle in current triangle set
         var coordArray = []; // 1D array of vertex coords for WebGL
+        var normalArray = []; // 1D array of normal vector components for WebGL
         var ambientColorArray = []; // 1D array of ambient color values
         var diffuseColorArray = []; // 1D array of diffuse color values
         var specularColorArray = []; // 1D array of specular color values
         var indexArray = []; // 1D array of vertex indices for WebGL
         var vtxBufferSize = 0; // the number of vertices in the vertex buffer
         var vtxToAdd = []; // vtx coords to add to the coord array
+        var normalToAdd = []; // normal components to add to the normal array
         var ambientToAdd = []; // ambient color data to add
         var diffuseToAdd = []; // diffuse color data to add
         var specularToAdd = []; // specular color data to add
@@ -104,6 +116,10 @@ function loadTriangles() {
             for (whichSetVert=0; whichSetVert<inputTriangles[whichSet].vertices.length; whichSetVert++){
                 vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert];
                 coordArray.push(vtxToAdd[0], vtxToAdd[1], vtxToAdd[2]);
+
+                // Add normal vector component data
+                normalToAdd = inputTriangles[whichSet].normals[whichSetVert];
+                normalArray.push(normalToAdd[0], normalToAdd[1], normalToAdd[2]);
 
                 // Add ambient, diffuse, and specular color data
                 ambientToAdd = inputTriangles[whichSet].material.ambient;
@@ -125,11 +141,18 @@ function loadTriangles() {
         } // end for each triangle set 
         triBufferSize *= 3
 
-        // console.log(coordArray.length);
         // send the vertex coords to webGL
         vertexBuffer = gl.createBuffer(); // init empty vertex coord buffer
         gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate that buffer
         gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(coordArray),gl.STATIC_DRAW); // coords to that buffer
+
+        // send the vertex normals to webGl
+        normalBuffer = gl.createBuffer(); // init empty normals buffer
+        gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffer); // activate buffer
+        gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(normalArray),gl.STATIC_DRAW); // components to that buffer
+
+        console.log(coordArray);
+        console.log(normalArray);
         
         // send the color data to webGL (ambient, diffuse, specular)
         ambientColorBuffer = gl.createBuffer(); // init empty ambient color buffer
@@ -139,9 +162,6 @@ function loadTriangles() {
         diffuseColorBuffer = gl.createBuffer(); // init empty diffuse color buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, diffuseColorBuffer); // activate that buffer
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diffuseColorArray), gl.STATIC_DRAW); // diffuse colors to that buffer
-
-        console.log(diffuseColorArray);
-        console.log(coordArray);
 
         specularColorBuffer = gl.createBuffer(); // init empty specular color buffer
         gl.bindBuffer(gl.ARRAY_BUFFER, specularColorBuffer); // activate that buffer
@@ -163,6 +183,10 @@ function setupShaders() {
     var fShaderCode = `
         precision mediump float;
 
+        // Position Attributes
+        varying vec3 fragVertexPosition;
+        varying vec3 fragNormal;
+
         // Color Attributes
         varying vec3 fragAmbientColor;
         varying vec3 fragDiffuseColor;
@@ -171,6 +195,7 @@ function setupShaders() {
         void main(void) {
             // Shader will not compile if not all attributes are used. This is temporary.
             vec3 a = fragAmbientColor + fragDiffuseColor + fragSpecularColor; 
+            vec3 b = fragVertexPosition + fragNormal;
 
             gl_FragColor = vec4(fragDiffuseColor.r, fragDiffuseColor.g, fragDiffuseColor.b, 1.0); // all fragments are diffuse color
         }
@@ -178,7 +203,13 @@ function setupShaders() {
     
     // define vertex shader in essl using es6 template strings
     var vShaderCode = `
+        // Position attributes
         attribute vec3 vertexPosition;
+        attribute vec3 vertexNormal;
+        // Varying Position Attributes to pass to fragment shader
+        varying vec3 fragVertexPosition;
+        varying vec3 fragNormal;
+
         uniform bool altPosition;
 
         // Color Attributes
@@ -195,6 +226,9 @@ function setupShaders() {
                 gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
             else
                 gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
+
+            fragVertexPosition = vertexPosition;
+            fragNormal = vertexNormal;
 
             fragAmbientColor = ambientColor;
             fragDiffuseColor = diffuseColor;
@@ -232,6 +266,9 @@ function setupShaders() {
                 vertexPositionAttrib = // get pointer to vertex shader input
                     gl.getAttribLocation(shaderProgram, "vertexPosition"); 
                 gl.enableVertexAttribArray(vertexPositionAttrib);
+                vertexNormalAttrib = // get pointer to normal shader input
+                    gl.getAttribLocation(shaderProgram, "vertexNormal");
+                gl.enableVertexAttribArray(vertexNormalAttrib);
                 altPositionUniform = // get pointer to altPosition flag
                     gl.getUniformLocation(shaderProgram, "altPosition");
                 ambientColorAttrib = // get pointer to ambient attribute
@@ -251,23 +288,28 @@ function setupShaders() {
         console.log(e);
     } // end catch
     altPosition = false;
-    setTimeout(function alterPosition() {
-        altPosition = !altPosition;
-        setTimeout(alterPosition, 2000);
-    }, 2000); // switch flag value every 2 seconds
+    // setTimeout(function alterPosition() {
+    //     altPosition = !altPosition;
+    //     setTimeout(alterPosition, 2000);
+    // }, 2000); // switch flag value every 2 seconds
 } // end setup shaders
 var bgColor = 0;
 // render the loaded model
 function renderTriangles() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
-    bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
-    gl.clearColor(bgColor, 0, 0, 1.0);
+    // bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
+    // gl.clearColor(bgColor, 0, 0, 1.0);
     requestAnimationFrame(renderTriangles);
 
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate
     gl.vertexAttribPointer(vertexPositionAttrib,3,gl.FLOAT,false,0,0); // feed
 
+    // activate and feed normal buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffer); // activate
+    gl.vertexAttribPointer(vertexNormalAttrib,3,gl.FLOAT,false,0,0); // feed
+
+    // activate and feed color buffers
     gl.bindBuffer(gl.ARRAY_BUFFER,ambientColorBuffer); // activate
     gl.vertexAttribPointer(ambientColorAttrib,3,gl.FLOAT,false,0,0); // feed
     gl.bindBuffer(gl.ARRAY_BUFFER,diffuseColorBuffer); // activate
