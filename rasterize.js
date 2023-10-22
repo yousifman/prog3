@@ -8,12 +8,14 @@ const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"
 // const INPUT_LIGHTS_URL = "https://ncsucgclass.github.io/prog3/lights.json"; // lights file loc
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
 //const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
-var Eye = new vec4.fromValues(0.5, 0.5, -0.5, 1.0); // default eye position in world space
+
 var lightPos = new Float32Array([-0.5, 1.5, -0.5]);
 var lightAmbient = new Float32Array([1.0, 1.0, 1.0]);
 var lightDiffuse = new Float32Array([1.0, 1.0, 1.0]);
 var lightSpecular = new Float32Array([1.0, 1.0, 1.0]);
 
+//var Eye = new vec4.fromValues(0.5, 0.5, -0.5, 1.0); // default eye position in world space
+var Eye = new vec4.fromValues(0,0,0,1.0);
 var lookAt = vec3.fromValues(0, 0, 0); // The point the camera is looking at (default: origin)
 var lookUp = vec3.fromValues(0, 1, 0); // The up vector (default: positive Y-axis as up)
 
@@ -265,10 +267,10 @@ function setupShaders() {
             if(altPosition)
                 gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
             else
-                gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
+                gl_Position = viewMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
 
-            fragVertexPosition = vertexPosition;
-            fragVertexNormal = vertexNormal;
+            fragVertexPosition = mat3(viewMatrix) * vertexPosition;
+            fragVertexNormal = mat3(viewMatrix) * vertexNormal;
 
             fragAmbientColor = ambientColor;
             fragDiffuseColor = diffuseColor;
@@ -398,7 +400,7 @@ function main() {
     setupShaders(); // setup the webGL shaders
     renderTriangles(); // draw the triangles using webGL
 
-    var tAmt = 1;
+    var tAmt = 0.01;
 
     document.addEventListener('keydown', function (event) {
         // translate view along view X
