@@ -14,10 +14,12 @@ var lightAmbient = new Float32Array([1.0, 1.0, 1.0]);
 var lightDiffuse = new Float32Array([1.0, 1.0, 1.0]);
 var lightSpecular = new Float32Array([1.0, 1.0, 1.0]);
 
-//var Eye = new vec4.fromValues(0.5, 0.5, -0.5, 1.0); // default eye position in world space
-var Eye = new vec4.fromValues(0,0,0,1.0);
-var lookAt = vec3.fromValues(0, 0, 0); // The point the camera is looking at (default: origin)
+var Eye = new vec4.fromValues(0.5, 0.5, -0.5, 1.0); // default eye position in world space
+// var Eye = new vec4.fromValues(0,0,0,1.0);
+var lookAt = vec3.fromValues(0, 0, 1); // The point the camera is looking at (default: origin)
 var lookUp = vec3.fromValues(0, 1, 0); // The up vector (default: positive Y-axis as up)
+
+var canvasWidth, canvasHeight;
 
 var shaderProgram;
 
@@ -79,6 +81,8 @@ function setupWebGL() {
     // Get the canvas and context
     var canvas = document.getElementById("myWebGLCanvas"); // create a js canvas
     gl = canvas.getContext("webgl"); // get a webgl object from it
+    canvasWidth = canvas.width;
+    canvasHeight = canvas.height;
 
     try {
         if (gl == null) {
@@ -261,16 +265,16 @@ function setupShaders() {
         varying float fragSpecularPower;
 
         // view matrix
-        uniform mat4 viewMatrix;
+        uniform mat4 mvpMatrix;
 
         void main(void) {
             if(altPosition)
                 gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
             else
-                gl_Position = viewMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
+                gl_Position = mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
 
-            fragVertexPosition = mat3(viewMatrix) * vertexPosition;
-            fragVertexNormal = mat3(viewMatrix) * vertexNormal;
+            fragVertexPosition = mat3(mvpMatrix) * vertexPosition;
+            fragVertexNormal = mat3(mvpMatrix) * vertexNormal;
 
             fragAmbientColor = ambientColor;
             fragDiffuseColor = diffuseColor;
@@ -354,15 +358,28 @@ function renderTriangles() {
     // bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
     // gl.clearColor(bgColor, 0, 0, 1.0);
 
-    // update camera
+    // update view Matrix
     var eye = vec3.fromValues(Eye[0], Eye[1], Eye[2]);
+    var at = vec3.create();
+    vec3.add(at, eye, lookAt);
     var viewMatrix = mat4.create();
-    mat4.lookAt(viewMatrix, eye, lookAt, lookUp);
+    mat4.lookAt(viewMatrix, eye, at, lookUp);
+    
+    // update projection matrix
+    var projectionMatrix = mat4.create();
+    var aspectRatio = canvasWidth / canvasHeight;
+    var fieldOfView = 70 * Math.PI / 180; // 45-degree field of view, adjust as needed
+    var near = 0.1; // Near clipping plane, adjust as needed
+    var far = 100.0; // Far clipping plane, adjust as needed
+    mat4.perspective(projectionMatrix, fieldOfView, aspectRatio, near, far);
 
-    // get viewMatrix location from shader program
-    var viewMatrixUniform = gl.getUniformLocation(shaderProgram, "viewMatrix");
-    // Set the uniform view matrix in the shader
-    gl.uniformMatrix4fv(viewMatrixUniform, false, viewMatrix);
+    // create model-view projection matrix (MVP)
+    var mvpMatrix = mat4.create();
+    mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
+
+    // Pass the mvpMatrix to the shader as a uniform
+    var mvpMatrixUniform = gl.getUniformLocation(shaderProgram, "mvpMatrix");
+    gl.uniformMatrix4fv(mvpMatrixUniform, false, mvpMatrix);
 
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer); // activate
@@ -390,9 +407,81 @@ function renderTriangles() {
     requestAnimationFrame(renderTriangles);
 } // end render triangles
 
+// handle all key presses
+function handleKeyEvent(event) {
+
+    var tAmt = 0.01;
+
+    // for yaw rotations to remove duplicate code
+    var yawInRadians = (-1 * Math.PI) / 180;
+    
+    // for pitch rotations to remove duplicate code
+    var pitchInRadians = (-1 * Math.PI) / 180;
+    
+    // for up and down translation
+    var up = vec3.create();
+    vec3.normalize(up, lookUp);
+    
+    // for left and right translations, and for pitch
+    var forward = vec3.create();
+    vec3.normalize(forward, lookAt);
+    var left = vec3.create();
+    vec3.normalize(left, vec3.cross(vec3.create(), forward, lookUp));
+
+    switch (event.key) {
+
+        // translate eye left and right relative to view
+        case 'a':
+            vec3.add(Eye, Eye, vec3.scale(left, left, -tAmt));
+            break;
+        case 'd':
+            vec3.add(Eye, Eye, vec3.scale(left, left, tAmt));
+            break;
+
+        // translate eye forward and backward relative to view
+        case 'w':
+            var forward = vec3.create();
+            vec3.normalize(forward, lookAt);
+            vec3.add(Eye,Eye, vec3.scale(forward, forward, tAmt));
+            break;
+        case 's':
+            var forward = vec3.create();
+            vec3.normalize(forward, lookAt);
+            vec3.add(Eye,Eye, vec3.scale(forward, forward, -tAmt));
+            break;
+
+        // translate eye up and down relative to view
+        case 'q':
+            vec3.add(Eye,Eye, vec3.scale(up, up, tAmt));
+            break;
+        case 'e':
+            vec3.add(Eye,Eye, vec3.scale(up, up, -tAmt));
+            break;
+
+        // rotate view left and right (yaw - rotate along y axis)
+        case 'A':
+            yawInRadians *= -1;
+        case 'D':
+            var rotationMatrix = mat4.create();
+            mat4.rotate(rotationMatrix, rotationMatrix, yawInRadians, lookUp);
+            vec3.transformMat4(lookAt,lookAt,rotationMatrix);
+            break;
+
+        // rotate view forward and backward (pitch - rotate along x axis)
+        case 'W':
+            pitchInRadians *= -1;
+        case 'S':
+            var rotationMatrix = mat4.create();
+            mat4.rotate(rotationMatrix, rotationMatrix, pitchInRadians, left);
+            vec3.transformMat4(lookAt, lookAt, rotationMatrix);
+            vec3.transformMat4(lookUp, lookUp, rotationMatrix);
+            break;
+        default:
+            // Do nothing
+    }
+}
 
 /* MAIN -- HERE is where execution begins after window load */
-
 function main() {
 
     setupWebGL(); // set up the webGL environment
@@ -400,44 +489,30 @@ function main() {
     setupShaders(); // setup the webGL shaders
     renderTriangles(); // draw the triangles using webGL
 
-    var tAmt = 0.01;
+    document.addEventListener('keydown', handleKeyEvent); // handle key inputs
 
-    document.addEventListener('keydown', function (event) {
-        // translate view along view X
-        if (event.key === 'a') {
-            Eye[0] -= tAmt;
-        } else if (event.key === 'd') {
-            Eye[0] += tAmt;
-        }
-        // translate view along view Y
-        else if (event.key == 'w') {
-            Eye[1] += tAmt;
-        }
-        else if (event.key == 's') {
-            Eye[1] -= tAmt;
-        }
-
-        else if (event.key == 'q') {
-            Eye[2] += tAmt;
-        }
-        else if (event.key == 'e') {
-            Eye[2] -= tAmt;
-        }
-
-        // else if (event.key == 'A') {
-
-        // }
-        // else if (event.key == 'D') {
-
-        // }
-
-        // else if (event.key == 'W') {
-
-        // }
-        // else if (event.key == 'S') {
-
-        // }
-
-    });
+    // Function to update the Eye values
+    function updateEyeValues() {
+        document.getElementById("eyeX").textContent = Eye[0].toFixed(2);
+        document.getElementById("eyeY").textContent = Eye[1].toFixed(2);
+        document.getElementById("eyeZ").textContent = Eye[2].toFixed(2);
+    }
+    // Function to update the At values
+    function updateAtValues() {
+        document.getElementById("atX").textContent = lookAt[0].toFixed(2);
+        document.getElementById("atY").textContent = lookAt[1].toFixed(2);
+        document.getElementById("atZ").textContent = lookAt[2].toFixed(2);
+    }
+    // Function to update the Up values
+    function updateUpValues() {
+        document.getElementById("upX").textContent = lookUp[0].toFixed(2);
+        document.getElementById("upY").textContent = lookUp[1].toFixed(2);
+        document.getElementById("upZ").textContent = lookUp[2].toFixed(2);
+    }
+    
+    // Call the update function every 100 milliseconds (adjust the interval as needed)
+    setInterval(updateEyeValues, 100);
+    setInterval(updateAtValues, 100);
+    setInterval(updateUpValues, 100);
 
 } // end main
