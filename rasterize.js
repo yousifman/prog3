@@ -29,6 +29,8 @@ var gl = null; // the all powerful gl object. It's all here folks!
 var triangleBuffer; // this contains indices into vertexBuffer in triples
 var triBufferSize; // the number of indices in the triangle buffer
 
+var modelBuffer = []; // contains arrays with the vertices of each model
+
 var vertexBuffer; // this contains vertex coordinates in triples
 var normalBuffer; // this contains all the vertex normal vectors
 var ambientColorBuffer; // this contains ambient color values in triples
@@ -100,6 +102,8 @@ function setupWebGL() {
 
 } // end setupWebGL
 
+var vtxArray = [];
+
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
     var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles");
@@ -126,10 +130,19 @@ function loadTriangles() {
         for (var whichSet = 0; whichSet < inputTriangles.length; whichSet++) {
             vec3.set(indexOffset, vtxBufferSize, vtxBufferSize, vtxBufferSize); // update vertex offset
 
+            // initialize new model
+            modelBuffer.push([]);
+            let vIdx = 0;
+
             // set up the vertex coord array
             for (whichSetVert = 0; whichSetVert < inputTriangles[whichSet].vertices.length; whichSetVert++) {
                 vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert];
                 coordArray.push(vtxToAdd[0], vtxToAdd[1], vtxToAdd[2]);
+
+                vtxArray.push(vtxToAdd); // add vertex to array
+                // add the indices to the model buffer as well
+                modelBuffer[whichSet].push(vIdx);
+                vIdx++;
 
                 // Add normal vector component data
                 normalToAdd = inputTriangles[whichSet].normals[whichSetVert];
@@ -156,7 +169,7 @@ function loadTriangles() {
             vtxBufferSize += inputTriangles[whichSet].vertices.length; // total number of vertices
             triBufferSize += inputTriangles[whichSet].triangles.length; // total number of tris
         } // end for each triangle set 
-        triBufferSize *= 3
+        triBufferSize *= 3;
 
         // send the vertex coords to webGL
         vertexBuffer = gl.createBuffer(); // init empty vertex coord buffer
@@ -189,8 +202,6 @@ function loadTriangles() {
         triangleBuffer = gl.createBuffer(); // init empty triangle index buffer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate that buffer
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexArray), gl.STATIC_DRAW); // indices to that buffer
-
-
     } // end if triangles found
 } // end load triangles
 
@@ -267,11 +278,15 @@ function setupShaders() {
         // view matrix
         uniform mat4 mvpMatrix;
 
+        // scaling matrix
+        // uniform mat4 uScalingMatrix;
+
         void main(void) {
             if(altPosition)
                 gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
             else
                 gl_Position = mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
+                // gl_Position = vec4(uScalingMatrix, 1.0) * mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
 
             fragVertexPosition = mat3(mvpMatrix) * vertexPosition;
             fragVertexNormal = mat3(mvpMatrix) * vertexNormal;
@@ -364,7 +379,7 @@ function renderTriangles() {
     vec3.add(at, eye, lookAt);
     var viewMatrix = mat4.create();
     mat4.lookAt(viewMatrix, eye, at, lookUp);
-    
+
     // update projection matrix
     var projectionMatrix = mat4.create();
     var aspectRatio = canvasWidth / canvasHeight;
@@ -407,6 +422,31 @@ function renderTriangles() {
     requestAnimationFrame(renderTriangles);
 } // end render triangles
 
+function selectModel(idx) {
+    const scalingMatrix = mat4.create();
+    mat4.scale(scalingMatrix, scalingMatrix, [1.2, 1.2, 1.2]);
+
+    // iterate through the vertices in the modelBuffer
+    for (let i = 0; i < modelBuffer[idx].length; i += 3) {
+        
+        let vIdx = modelBuffer[idx][i];
+
+        const vertex = vec3.fromValues(vtxArray[vIdx][0], vtxArray[vIdx][1], vtxArray[vIdx][2]);
+        vec3.transformMat4(vertex, vertex, scalingMatrix);
+        vtxArray[vIdx][0] = vertex[0];
+        vtxArray[vIdx][1] = vertex[1];
+        vtxArray[vIdx][2] = vertex[2];
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vtxArray), gl.STATIC_DRAW);
+
+}
+
+function deselectModel(idx) {
+
+}
+
 // handle all key presses
 function handleKeyEvent(event) {
 
@@ -414,19 +454,24 @@ function handleKeyEvent(event) {
 
     // for yaw rotations to remove duplicate code
     var yawInRadians = (-1 * Math.PI) / 180;
-    
+
     // for pitch rotations to remove duplicate code
     var pitchInRadians = (-1 * Math.PI) / 180;
-    
+
     // for up and down translation
     var up = vec3.create();
     vec3.normalize(up, lookUp);
-    
+
     // for left and right translations, and for pitch
     var forward = vec3.create();
     vec3.normalize(forward, lookAt);
     var left = vec3.create();
     vec3.normalize(left, vec3.cross(vec3.create(), forward, lookUp));
+
+    // variables for triangle selection
+    var NUM_TRIS = 3;
+    var currModel = 0;
+    var select = false;
 
     switch (event.key) {
 
@@ -442,20 +487,20 @@ function handleKeyEvent(event) {
         case 'w':
             var forward = vec3.create();
             vec3.normalize(forward, lookAt);
-            vec3.add(Eye,Eye, vec3.scale(forward, forward, tAmt));
+            vec3.add(Eye, Eye, vec3.scale(forward, forward, tAmt));
             break;
         case 's':
             var forward = vec3.create();
             vec3.normalize(forward, lookAt);
-            vec3.add(Eye,Eye, vec3.scale(forward, forward, -tAmt));
+            vec3.add(Eye, Eye, vec3.scale(forward, forward, -tAmt));
             break;
 
         // translate eye up and down relative to view
         case 'q':
-            vec3.add(Eye,Eye, vec3.scale(up, up, tAmt));
+            vec3.add(Eye, Eye, vec3.scale(up, up, tAmt));
             break;
         case 'e':
-            vec3.add(Eye,Eye, vec3.scale(up, up, -tAmt));
+            vec3.add(Eye, Eye, vec3.scale(up, up, -tAmt));
             break;
 
         // rotate view left and right (yaw - rotate along y axis)
@@ -464,7 +509,7 @@ function handleKeyEvent(event) {
         case 'D':
             var rotationMatrix = mat4.create();
             mat4.rotate(rotationMatrix, rotationMatrix, yawInRadians, lookUp);
-            vec3.transformMat4(lookAt,lookAt,rotationMatrix);
+            vec3.transformMat4(lookAt, lookAt, rotationMatrix);
             break;
 
         // rotate view forward and backward (pitch - rotate along x axis)
@@ -476,8 +521,39 @@ function handleKeyEvent(event) {
             vec3.transformMat4(lookAt, lookAt, rotationMatrix);
             vec3.transformMat4(lookUp, lookUp, rotationMatrix);
             break;
+
+        case ' ':
+            // toggle selection
+            select = !select;
+            // deselect triangle
+            if (!select) {
+                deselectModel(currModel);
+                break;
+            }
+            // start selection on first triangle
+            currModel = 0;
+            selectModel(currModel);
+            break;
+        case 'ArrowLeft':
+            if (!select) break;
+            deselectModel(currModel);  // deselect previous model
+
+            currModel--; // update idx 
+            if (currModel == -1) currModel = NUM_TRIS - 1;
+
+            selectModel(currModel); // apply selection transform
+            break;
+        case 'ArrowRight':
+            if (!select) break;
+            deselectModel(currModel); // deselect previous model
+
+            currModel++;
+            if (currModel == NUM_TRIES) currModel = 0;
+
+            selectModel(currModel);   // apply selection transform
+            break;
         default:
-            // Do nothing
+        // Do nothing
     }
 }
 
@@ -509,7 +585,7 @@ function main() {
         document.getElementById("upY").textContent = lookUp[1].toFixed(2);
         document.getElementById("upZ").textContent = lookUp[2].toFixed(2);
     }
-    
+
     // Call the update function every 100 milliseconds (adjust the interval as needed)
     setInterval(updateEyeValues, 100);
     setInterval(updateAtValues, 100);
