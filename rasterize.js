@@ -29,9 +29,8 @@ var gl = null; // the all powerful gl object. It's all here folks!
 var triangleBuffer; // this contains indices into vertexBuffer in triples
 var triBufferSize; // the number of indices in the triangle buffer
 
-var modelBuffer = []; // contains arrays with the vertices of each model
-
 var vertexBuffer; // this contains vertex coordinates in triples
+var modelIndicesBuffer; // this contains the model index for each vertex
 var normalBuffer; // this contains all the vertex normal vectors
 var ambientColorBuffer; // this contains ambient color values in triples
 var diffuseColorBuffer; // this contains diffuse color values in triples
@@ -40,6 +39,7 @@ var specularPowerBuffer; // this contains specular shiniess value
 var altPosition; // flag indicating whether to alter vertex positions
 
 var vertexPositionAttrib; // where to put position for vertex shader
+var modelIndicesAttrib; // where to put model index for vertex
 var vertexNormalAttrib; // where to put normals for vertex shader
 var ambientColorAttrib; // where to put ambient color for vertex shader
 var diffuseColorAttrib; // where to put diffuse color for vertex shader
@@ -47,6 +47,14 @@ var specularColorAttrib; //where to put specular color for vertex shader
 var specularPowerAttrib; //where to put specular shiniess for vertex shader
 var altPositionUniform; // where to put altPosition flag for vertex shader
 
+// 2D array of triangle centers. index 1 is the triangle set, and index 2 is the triangle in a set
+var triangleCenters = []; 
+
+var modelMatrices = []; // list of model matrices
+
+var select = false; // whether a model is selected or not
+var modelIdx; // current model index
+var numModels; // max number of models 
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -102,7 +110,12 @@ function setupWebGL() {
 
 } // end setupWebGL
 
-var vtxArray = [];
+function calculateTriangleCenter(vertex1, vertex2, vertex3) {
+    var centerX = (vertex1[0] + vertex2[0] + vertex3[0]) / 3;
+    var centerY = (vertex1[1] + vertex2[1] + vertex3[1]) / 3;
+    var centerZ = (vertex1[2] + vertex2[2] + vertex3[2]) / 3;
+    return vec3.fromValues(centerX,centerY,centerZ);
+}
 
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
@@ -125,24 +138,16 @@ function loadTriangles() {
         var specularToAdd = []; // specular color data to add
         var indexOffset = vec3.create(); // the index offset for the current set
         var triToAdd = vec3.create(); // tri indices to add to the index array
+        var modelIndices = [];
 
         triBufferSize = 0;
         for (var whichSet = 0; whichSet < inputTriangles.length; whichSet++) {
             vec3.set(indexOffset, vtxBufferSize, vtxBufferSize, vtxBufferSize); // update vertex offset
 
-            // initialize new model
-            modelBuffer.push([]);
-            let vIdx = 0;
-
             // set up the vertex coord array
             for (whichSetVert = 0; whichSetVert < inputTriangles[whichSet].vertices.length; whichSetVert++) {
                 vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert];
                 coordArray.push(vtxToAdd[0], vtxToAdd[1], vtxToAdd[2]);
-
-                vtxArray.push(vtxToAdd); // add vertex to array
-                // add the indices to the model buffer as well
-                modelBuffer[whichSet].push(vIdx);
-                vIdx++;
 
                 // Add normal vector component data
                 normalToAdd = inputTriangles[whichSet].normals[whichSetVert];
@@ -158,16 +163,40 @@ function loadTriangles() {
 
                 // Add specular power data
                 specularPowerArray.push(inputTriangles[whichSet].material.n);
+
+                // add the model index for each vertex
+                modelIndices.push(whichSet);
+
             }
 
+            // push a new row for each triangle set
+            triangleCenters.push([]);
+
             // set up the triangle index array, adjusting indices across sets
+            // also set up the triangle centers array (not passed to the shader)
+            var triangles = inputTriangles[whichSet].triangles;
+            var vertices = inputTriangles[whichSet].vertices;
             for (whichSetTri = 0; whichSetTri < inputTriangles[whichSet].triangles.length; whichSetTri++) {
                 vec3.add(triToAdd, indexOffset, inputTriangles[whichSet].triangles[whichSetTri]);
                 indexArray.push(triToAdd[0], triToAdd[1], triToAdd[2]);
+
+                // calculate centers of trianlges and push them to the centers array
+                var triangle = triangles[whichSetTri];
+                var vertex1 = vertices[triangle[0]];
+                var vertex2 = vertices[triangle[1]];
+                var vertex3 = vertices[triangle[2]];
+
+                var center = calculateTriangleCenter(vertex1, vertex2, vertex3);
+
+                triangleCenters[whichSet].push(center);
+
             }
 
             vtxBufferSize += inputTriangles[whichSet].vertices.length; // total number of vertices
             triBufferSize += inputTriangles[whichSet].triangles.length; // total number of tris
+            
+            // Add a transofrmation matrix for every model
+            modelMatrices.push(mat4.create());
         } // end for each triangle set 
         triBufferSize *= 3;
 
@@ -202,6 +231,14 @@ function loadTriangles() {
         triangleBuffer = gl.createBuffer(); // init empty triangle index buffer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate that buffer
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexArray), gl.STATIC_DRAW); // indices to that buffer
+
+        // send the model indices to webGL
+        modelIndicesBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelIndices), gl.STATIC_DRAW);
+
+        console.log(modelIndices);
+        console.log(specularPowerArray);
     } // end if triangles found
 } // end load triangles
 
@@ -275,18 +312,29 @@ function setupShaders() {
         varying vec3 fragSpecularColor;
         varying float fragSpecularPower;
 
-        // view matrix
-        uniform mat4 mvpMatrix;
+        attribute float modelIndex;
 
-        // scaling matrix
-        // uniform mat4 uScalingMatrix;
+        #define MAX_MODELS 10 // max number of models this shader supports
+
+        // matrix data as an array of vec4's
+        uniform vec4 matrixData[MAX_MODELS * 4];
+
+        // view-projection matrix
+        uniform mat4 vpMatrix;
+
+        // build a mat4 for any given model index
+        mat4 buildMat4(int index) {
+            int offset = index * 4;
+            return mat4(
+                matrixData[offset], matrixData[offset + 1], matrixData[offset + 2], matrixData[offset + 3]
+            );
+        }
 
         void main(void) {
-            if(altPosition)
-                gl_Position = vec4(vertexPosition + vec3(-1.0, -1.0, 0.0), 1.0); // use the altered position
-            else
-                gl_Position = mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
-                // gl_Position = vec4(uScalingMatrix, 1.0) * mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
+            mat4 modelMatrix = buildMat4(int(modelIndex));
+            mat4 mvpMatrix = modelMatrix * vpMatrix;
+
+            gl_Position = mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
 
             fragVertexPosition = mat3(mvpMatrix) * vertexPosition;
             fragVertexNormal = mat3(mvpMatrix) * vertexNormal;
@@ -353,6 +401,10 @@ function setupShaders() {
                 gl.uniform3fv(lightDiffuseUniform, lightDiffuse);
                 var lightSpecularUniform = gl.getUniformLocation(shaderProgram, "lightSpecular");
                 gl.uniform3fv(lightSpecularUniform, lightSpecular);
+                // Enable the vertex model index attribute
+                modelIndicesAttrib = 
+                    gl.getAttribLocation(shaderProgram, "modelIndex");
+                gl.enableVertexAttribArray(modelIndicesAttrib);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try 
@@ -367,17 +419,42 @@ function setupShaders() {
     // }, 2000); // switch flag value every 2 seconds
 } // end setup shaders
 var bgColor = 0;
+
+// flatten an array of matrices into an array of float32's
+function flattenMatrices(matrixArray) {
+    var size = 16 * matrixArray.length; // Assuming each matrix is 4x4 (16 values)
+    var flattenedArray = new Float32Array(size);
+    var index = 0;
+
+    matrixArray.forEach(function (matrix) {
+        for (var i = 0; i < matrix.length; i++) {
+            flattenedArray[index] = matrix[i];
+            index++;
+        }
+    });
+
+    return flattenedArray;
+}
+
 // render the loaded model
 function renderTriangles() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
     // bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
     // gl.clearColor(bgColor, 0, 0, 1.0);
 
-    // update view Matrix
+    // Model View Projection, in that order
+
+    // update model matrices
+    // flatten the model matrices before sending to shader
+    var matrixData = flattenMatrices(modelMatrices);
+    var matrixDataLocation = gl.getUniformLocation(shaderProgram, "matrixData"); // Get the uniform location
+    gl.uniform4fv(matrixDataLocation, matrixData);
+
+    // update view matrix
+    var viewMatrix = mat4.create();
     var eye = vec3.fromValues(Eye[0], Eye[1], Eye[2]);
     var at = vec3.create();
     vec3.add(at, eye, lookAt);
-    var viewMatrix = mat4.create();
     mat4.lookAt(viewMatrix, eye, at, lookUp);
 
     // update projection matrix
@@ -388,13 +465,13 @@ function renderTriangles() {
     var far = 100.0; // Far clipping plane, adjust as needed
     mat4.perspective(projectionMatrix, fieldOfView, aspectRatio, near, far);
 
-    // create model-view projection matrix (MVP)
-    var mvpMatrix = mat4.create();
-    mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
+    // create view-projection matrix (VP)
+    var viewProjectionMatrix = mat4.create();
+    mat4.multiply(viewProjectionMatrix, projectionMatrix, viewMatrix);
 
     // Pass the mvpMatrix to the shader as a uniform
-    var mvpMatrixUniform = gl.getUniformLocation(shaderProgram, "mvpMatrix");
-    gl.uniformMatrix4fv(mvpMatrixUniform, false, mvpMatrix);
+    var mvpMatrixUniform = gl.getUniformLocation(shaderProgram, "vpMatrix");
+    gl.uniformMatrix4fv(mvpMatrixUniform, false, viewProjectionMatrix);
 
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer); // activate
@@ -413,39 +490,19 @@ function renderTriangles() {
     gl.vertexAttribPointer(specularColorAttrib, 3, gl.FLOAT, false, 0, 0); // feed
     gl.bindBuffer(gl.ARRAY_BUFFER, specularPowerBuffer); // activate
     gl.vertexAttribPointer(specularPowerAttrib, 1, gl.FLOAT, false, 0, 0); // feed
+    
+    // activate and feed the model index
+    gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer); // activate
+    gl.vertexAttribPointer(modelIndicesAttrib, 1, gl.FLOAT, false, 0, 0); // feed
 
     gl.uniform1i(altPositionUniform, altPosition); // feed
+
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate
     gl.drawElements(gl.TRIANGLES, triBufferSize, gl.UNSIGNED_SHORT, 0); // render
 
     requestAnimationFrame(renderTriangles);
 } // end render triangles
-
-function selectModel(idx) {
-    const scalingMatrix = mat4.create();
-    mat4.scale(scalingMatrix, scalingMatrix, [1.2, 1.2, 1.2]);
-
-    // iterate through the vertices in the modelBuffer
-    for (let i = 0; i < modelBuffer[idx].length; i += 3) {
-        
-        let vIdx = modelBuffer[idx][i];
-
-        const vertex = vec3.fromValues(vtxArray[vIdx][0], vtxArray[vIdx][1], vtxArray[vIdx][2]);
-        vec3.transformMat4(vertex, vertex, scalingMatrix);
-        vtxArray[vIdx][0] = vertex[0];
-        vtxArray[vIdx][1] = vertex[1];
-        vtxArray[vIdx][2] = vertex[2];
-    }
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vtxArray), gl.STATIC_DRAW);
-
-}
-
-function deselectModel(idx) {
-
-}
 
 // handle all key presses
 function handleKeyEvent(event) {
@@ -467,11 +524,6 @@ function handleKeyEvent(event) {
     vec3.normalize(forward, lookAt);
     var left = vec3.create();
     vec3.normalize(left, vec3.cross(vec3.create(), forward, lookUp));
-
-    // variables for triangle selection
-    var NUM_TRIS = 3;
-    var currModel = 0;
-    var select = false;
 
     switch (event.key) {
 
@@ -523,34 +575,10 @@ function handleKeyEvent(event) {
             break;
 
         case ' ':
-            // toggle selection
-            select = !select;
-            // deselect triangle
-            if (!select) {
-                deselectModel(currModel);
-                break;
-            }
-            // start selection on first triangle
-            currModel = 0;
-            selectModel(currModel);
             break;
         case 'ArrowLeft':
-            if (!select) break;
-            deselectModel(currModel);  // deselect previous model
-
-            currModel--; // update idx 
-            if (currModel == -1) currModel = NUM_TRIS - 1;
-
-            selectModel(currModel); // apply selection transform
             break;
         case 'ArrowRight':
-            if (!select) break;
-            deselectModel(currModel); // deselect previous model
-
-            currModel++;
-            if (currModel == NUM_TRIES) currModel = 0;
-
-            selectModel(currModel);   // apply selection transform
             break;
         default:
         // Do nothing
@@ -564,6 +592,8 @@ function main() {
     loadTriangles(); // load in the triangles from tri file
     setupShaders(); // setup the webGL shaders
     renderTriangles(); // draw the triangles using webGL
+
+    console.log(modelMatrices.length);
 
     document.addEventListener('keydown', handleKeyEvent); // handle key inputs
 
