@@ -4,7 +4,7 @@
 const WIN_Z = 0;  // default graphics window z coord in world space
 const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in world space
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles2.json"; // triangles file loc
 // const INPUT_LIGHTS_URL = "https://ncsucgclass.github.io/prog3/lights.json"; // lights file loc
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
 //const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
@@ -36,7 +36,6 @@ var ambientColorBuffer; // this contains ambient color values in triples
 var diffuseColorBuffer; // this contains diffuse color values in triples
 var specularColorBuffer; // this contains specular color values in triples
 var specularPowerBuffer; // this contains specular shiniess value
-var altPosition; // flag indicating whether to alter vertex positions
 
 var vertexPositionAttrib; // where to put position for vertex shader
 var modelIndicesAttrib; // where to put model index for vertex
@@ -45,15 +44,16 @@ var ambientColorAttrib; // where to put ambient color for vertex shader
 var diffuseColorAttrib; // where to put diffuse color for vertex shader
 var specularColorAttrib; //where to put specular color for vertex shader
 var specularPowerAttrib; //where to put specular shiniess for vertex shader
-var altPositionUniform; // where to put altPosition flag for vertex shader
 
-// 2D array of triangle centers. index 1 is the triangle set, and index 2 is the triangle in a set
-var triangleCenters = []; 
 
 var modelMatrices = []; // list of model matrices
+var scaleMatrices = []; // list of scale matrices
+var translationMatrices = []; // list of translation matrices
+var rotationMatrices = []; // list of rotation matrices
+var modelCenters = []; // array of model centers
 
-var select = false; // whether a model is selected or not
-var modelIdx; // current model index
+var selected = false; // whether a model is selected or not
+var selectedModelIdx = 0; // current model index
 var numModels; // max number of models 
 
 // ASSIGNMENT HELPER FUNCTIONS
@@ -139,10 +139,15 @@ function loadTriangles() {
         var indexOffset = vec3.create(); // the index offset for the current set
         var triToAdd = vec3.create(); // tri indices to add to the index array
         var modelIndices = [];
+        numModels = inputTriangles.length;
 
         triBufferSize = 0;
         for (var whichSet = 0; whichSet < inputTriangles.length; whichSet++) {
             vec3.set(indexOffset, vtxBufferSize, vtxBufferSize, vtxBufferSize); // update vertex offset
+
+            // set up rolling sum to calculate center point of the triangle set
+            var rollingCenterSum = [0,0,0];
+            var vtxCount = 0;
 
             // set up the vertex coord array
             for (whichSetVert = 0; whichSetVert < inputTriangles[whichSet].vertices.length; whichSetVert++) {
@@ -167,29 +172,26 @@ function loadTriangles() {
                 // add the model index for each vertex
                 modelIndices.push(whichSet);
 
+                // sum the vertices into a rolling sum to calcualte the center later
+                rollingCenterSum[0] += vtxToAdd[0];
+                rollingCenterSum[1] += vtxToAdd[1];
+                rollingCenterSum[2] += vtxToAdd[2];
+                vtxCount++;
+
             }
 
-            // push a new row for each triangle set
-            triangleCenters.push([]);
+            // calculate the center and push to the model centers array
+            var center = vec3.fromValues(
+                rollingCenterSum[0] / vtxCount,
+                rollingCenterSum[1] / vtxCount,
+                rollingCenterSum[2] / vtxCount
+            );
+            modelCenters.push(center);
 
             // set up the triangle index array, adjusting indices across sets
-            // also set up the triangle centers array (not passed to the shader)
-            var triangles = inputTriangles[whichSet].triangles;
-            var vertices = inputTriangles[whichSet].vertices;
             for (whichSetTri = 0; whichSetTri < inputTriangles[whichSet].triangles.length; whichSetTri++) {
                 vec3.add(triToAdd, indexOffset, inputTriangles[whichSet].triangles[whichSetTri]);
                 indexArray.push(triToAdd[0], triToAdd[1], triToAdd[2]);
-
-                // calculate centers of trianlges and push them to the centers array
-                var triangle = triangles[whichSetTri];
-                var vertex1 = vertices[triangle[0]];
-                var vertex2 = vertices[triangle[1]];
-                var vertex3 = vertices[triangle[2]];
-
-                var center = calculateTriangleCenter(vertex1, vertex2, vertex3);
-
-                triangleCenters[whichSet].push(center);
-
             }
 
             vtxBufferSize += inputTriangles[whichSet].vertices.length; // total number of vertices
@@ -197,6 +199,10 @@ function loadTriangles() {
             
             // Add a transofrmation matrix for every model
             modelMatrices.push(mat4.create());
+            scaleMatrices.push(mat4.create());
+            translationMatrices.push(mat4.create());
+            rotationMatrices.push(mat4.create());
+
         } // end for each triangle set 
         triBufferSize *= 3;
 
@@ -237,8 +243,7 @@ function loadTriangles() {
         gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelIndices), gl.STATIC_DRAW);
 
-        console.log(modelIndices);
-        console.log(specularPowerArray);
+        console.log(modelCenters);
     } // end if triangles found
 } // end load triangles
 
@@ -299,8 +304,6 @@ function setupShaders() {
         varying vec3 fragVertexPosition;
         varying vec3 fragVertexNormal;
 
-        uniform bool altPosition;
-
         // Color Attributes
         attribute vec3 ambientColor;
         attribute vec3 diffuseColor;
@@ -332,7 +335,7 @@ function setupShaders() {
 
         void main(void) {
             mat4 modelMatrix = buildMat4(int(modelIndex));
-            mat4 mvpMatrix = modelMatrix * vpMatrix;
+            mat4 mvpMatrix = vpMatrix * modelMatrix;
 
             gl_Position = mvpMatrix * vec4(vertexPosition, 1.0); // use the untransformed position
 
@@ -379,8 +382,6 @@ function setupShaders() {
                 vertexNormalAttrib = // get pointer to normal shader input
                     gl.getAttribLocation(shaderProgram, "vertexNormal");
                 gl.enableVertexAttribArray(vertexNormalAttrib);
-                altPositionUniform = // get pointer to altPosition flag
-                    gl.getUniformLocation(shaderProgram, "altPosition");
                 ambientColorAttrib = // get pointer to ambient attribute
                     gl.getAttribLocation(shaderProgram, "ambientColor");
                 gl.enableVertexAttribArray(ambientColorAttrib);
@@ -412,11 +413,6 @@ function setupShaders() {
     catch (e) {
         console.log(e);
     } // end catch
-    altPosition = false;
-    // setTimeout(function alterPosition() {
-    //     altPosition = !altPosition;
-    //     setTimeout(alterPosition, 2000);
-    // }, 2000); // switch flag value every 2 seconds
 } // end setup shaders
 var bgColor = 0;
 
@@ -439,12 +435,28 @@ function flattenMatrices(matrixArray) {
 // render the loaded model
 function renderTriangles() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
-    // bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
-    // gl.clearColor(bgColor, 0, 0, 1.0);
 
     // Model View Projection, in that order
 
-    // update model matrices
+    // start with fresh identity matrices for all model matrices
+    for(var i = 0; i < numModels; i++) {
+        modelMatrices[i] = mat4.create();
+
+        // handle scaling
+        if(selected && i == selectedModelIdx) {
+            scaleMatrices[i] = scaleByFactor(modelCenters[i], 1.2);
+        } else {
+            scaleMatrices[i] = mat4.create();
+        }
+        mat4.multiply(modelMatrices[i], modelMatrices[i], scaleMatrices[i]);
+
+        // handle translation
+        mat4.multiply(modelMatrices[i], modelMatrices[i], translationMatrices[i]);
+
+        // handle rotation
+        mat4.multiply(modelMatrices[i], modelMatrices[i], rotationMatrices[i]);
+    }
+
     // flatten the model matrices before sending to shader
     var matrixData = flattenMatrices(modelMatrices);
     var matrixDataLocation = gl.getUniformLocation(shaderProgram, "matrixData"); // Get the uniform location
@@ -495,14 +507,36 @@ function renderTriangles() {
     gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer); // activate
     gl.vertexAttribPointer(modelIndicesAttrib, 1, gl.FLOAT, false, 0, 0); // feed
 
-    gl.uniform1i(altPositionUniform, altPosition); // feed
-
-
+    // activate and feed the traingle buffer
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer); // activate
     gl.drawElements(gl.TRIANGLES, triBufferSize, gl.UNSIGNED_SHORT, 0); // render
 
     requestAnimationFrame(renderTriangles);
 } // end render triangles
+
+function scaleByFactor(center, scalingFactor) {
+    const scaleMatrix = mat4.create();
+
+    // Create a translation matrix to move the center to the origin
+    const translateToOrigin = mat4.create();
+    mat4.fromTranslation(translateToOrigin, vec3.negate(vec3.create(), center));
+
+    // Create a scaling matrix to perform the uniform scaling by the specified factor
+    const scaleVector = vec3.fromValues(scalingFactor, scalingFactor, scalingFactor);
+    const scale = mat4.create();
+    mat4.fromScaling(scale, scaleVector);
+
+    // Create a translation matrix to move the center back to its original position
+    const translateBack = mat4.create();
+    mat4.fromTranslation(translateBack, center);
+
+    // Combine the matrices to get the final transformation matrix
+    mat4.multiply(scaleMatrix, scaleMatrix, translateBack);
+    mat4.multiply(scaleMatrix, scaleMatrix, scale);
+    mat4.multiply(scaleMatrix, scaleMatrix, translateToOrigin);
+
+    return scaleMatrix;
+}
 
 // handle all key presses
 function handleKeyEvent(event) {
@@ -529,30 +563,25 @@ function handleKeyEvent(event) {
 
         // translate eye left and right relative to view
         case 'a':
-            vec3.add(Eye, Eye, vec3.scale(left, left, -tAmt));
-            break;
+            tAmt *= -1;
         case 'd':
             vec3.add(Eye, Eye, vec3.scale(left, left, tAmt));
             break;
 
         // translate eye forward and backward relative to view
+        case 's':
+            tAmt *= -1;
         case 'w':
             var forward = vec3.create();
             vec3.normalize(forward, lookAt);
             vec3.add(Eye, Eye, vec3.scale(forward, forward, tAmt));
             break;
-        case 's':
-            var forward = vec3.create();
-            vec3.normalize(forward, lookAt);
-            vec3.add(Eye, Eye, vec3.scale(forward, forward, -tAmt));
-            break;
 
         // translate eye up and down relative to view
+        case 'e':
+            tAmt *= -1;
         case 'q':
             vec3.add(Eye, Eye, vec3.scale(up, up, tAmt));
-            break;
-        case 'e':
-            vec3.add(Eye, Eye, vec3.scale(up, up, -tAmt));
             break;
 
         // rotate view left and right (yaw - rotate along y axis)
@@ -574,15 +603,103 @@ function handleKeyEvent(event) {
             vec3.transformMat4(lookUp, lookUp, rotationMatrix);
             break;
 
+        // select a model and highlight it if selected
         case ' ':
+            selected = !selected;
             break;
         case 'ArrowLeft':
+            selectedModelIdx -= 1;
+            selectedModelIdx = selectedModelIdx == -1 ? numModels - 1 : selectedModelIdx;
             break;
         case 'ArrowRight':
+            selectedModelIdx += 1;
+            selectedModelIdx = selectedModelIdx == numModels ? 0 : selectedModelIdx;
+            break;
+
+        // translate selected model left and right
+        case 'k': // left
+            tAmt *= -1;
+        case ';': // right
+            if( selected ) {
+                // create translation matrix exactly for tAmt 
+                var translationMatrix = mat4.create();
+                mat4.translate(
+                    translationMatrix, 
+                    translationMatrix, 
+                    vec3.scale(vec3.create(), left, tAmt)
+                );
+                // apply this matrix to the existing translation matrix
+                mat4.multiply(
+                    translationMatrices[selectedModelIdx],
+                    translationMatrices[selectedModelIdx],
+                    translationMatrix
+                );
+                // update centers
+                vec3.transformMat4(
+                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx], 
+                    translationMatrix
+                );
+            }
+            break;
+
+        // translate selected model forward and backward
+        case 'l': // backwrd
+            tAmt *= -1;
+        case 'o': // forward
+            if( selected ) {
+                // create translation matrix exactly for tAmt 
+                var translationMatrix = mat4.create();
+                mat4.translate(
+                    translationMatrix, 
+                    translationMatrix, 
+                    vec3.scale(vec3.create(), forward, tAmt)
+                );
+                // apply this matrix to the existing translation matrix
+                mat4.multiply(
+                    translationMatrices[selectedModelIdx],
+                    translationMatrices[selectedModelIdx],
+                    translationMatrix
+                );
+                // update centers
+                vec3.transformMat4(
+                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx], 
+                    translationMatrix
+                );
+            }
+            break;
+
+        // translate selected model up and down
+        case 'i': // up
+            tAmt *= -1;
+        case 'p': // down
+            if( selected ) {
+                // create translation matrix exactly for tAmt 
+                var translationMatrix = mat4.create();
+                mat4.translate(
+                    translationMatrix, 
+                    translationMatrix, 
+                    vec3.scale(vec3.create(), up, tAmt)
+                );
+                // apply this matrix to the existing translation matrix
+                mat4.multiply(
+                    translationMatrices[selectedModelIdx],
+                    translationMatrices[selectedModelIdx],
+                    translationMatrix
+                );
+                // update centers
+                vec3.transformMat4(
+                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx], 
+                    translationMatrix
+                );
+            }
             break;
         default:
         // Do nothing
     }
+    console.log(selectedModelIdx);
 }
 
 /* MAIN -- HERE is where execution begins after window load */
