@@ -114,7 +114,7 @@ function calculateTriangleCenter(vertex1, vertex2, vertex3) {
     var centerX = (vertex1[0] + vertex2[0] + vertex3[0]) / 3;
     var centerY = (vertex1[1] + vertex2[1] + vertex3[1]) / 3;
     var centerZ = (vertex1[2] + vertex2[2] + vertex3[2]) / 3;
-    return vec3.fromValues(centerX,centerY,centerZ);
+    return vec3.fromValues(centerX, centerY, centerZ);
 }
 
 // read triangles in, load them into webgl buffers
@@ -146,7 +146,7 @@ function loadTriangles() {
             vec3.set(indexOffset, vtxBufferSize, vtxBufferSize, vtxBufferSize); // update vertex offset
 
             // set up rolling sum to calculate center point of the triangle set
-            var rollingCenterSum = [0,0,0];
+            var rollingCenterSum = [0, 0, 0];
             var vtxCount = 0;
 
             // set up the vertex coord array
@@ -196,7 +196,7 @@ function loadTriangles() {
 
             vtxBufferSize += inputTriangles[whichSet].vertices.length; // total number of vertices
             triBufferSize += inputTriangles[whichSet].triangles.length; // total number of tris
-            
+
             // Add a transofrmation matrix for every model
             modelMatrices.push(mat4.create());
             scaleMatrices.push(mat4.create());
@@ -243,7 +243,7 @@ function loadTriangles() {
         gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelIndices), gl.STATIC_DRAW);
 
-        console.log(modelCenters);
+        // console.log(modelCenters);
     } // end if triangles found
 } // end load triangles
 
@@ -403,7 +403,7 @@ function setupShaders() {
                 var lightSpecularUniform = gl.getUniformLocation(shaderProgram, "lightSpecular");
                 gl.uniform3fv(lightSpecularUniform, lightSpecular);
                 // Enable the vertex model index attribute
-                modelIndicesAttrib = 
+                modelIndicesAttrib =
                     gl.getAttribLocation(shaderProgram, "modelIndex");
                 gl.enableVertexAttribArray(modelIndicesAttrib);
             } // end if no shader program link errors
@@ -439,11 +439,11 @@ function renderTriangles() {
     // Model View Projection, in that order
 
     // start with fresh identity matrices for all model matrices
-    for(var i = 0; i < numModels; i++) {
+    for (var i = 0; i < numModels; i++) {
         modelMatrices[i] = mat4.create();
 
         // handle scaling
-        if(selected && i == selectedModelIdx) {
+        if (selected && i == selectedModelIdx) {
             scaleMatrices[i] = scaleByFactor(modelCenters[i], 1.2);
         } else {
             scaleMatrices[i] = mat4.create();
@@ -502,7 +502,7 @@ function renderTriangles() {
     gl.vertexAttribPointer(specularColorAttrib, 3, gl.FLOAT, false, 0, 0); // feed
     gl.bindBuffer(gl.ARRAY_BUFFER, specularPowerBuffer); // activate
     gl.vertexAttribPointer(specularPowerAttrib, 1, gl.FLOAT, false, 0, 0); // feed
-    
+
     // activate and feed the model index
     gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer); // activate
     gl.vertexAttribPointer(modelIndicesAttrib, 1, gl.FLOAT, false, 0, 0); // feed
@@ -536,6 +536,30 @@ function scaleByFactor(center, scalingFactor) {
     mat4.multiply(scaleMatrix, scaleMatrix, translateToOrigin);
 
     return scaleMatrix;
+}
+
+function innerRotate(center, yawInRadians) {
+    const finalRotMatrix = mat4.create();
+
+    // Create a translation matrix to move the center to the origin
+    const translateToOrigin = mat4.create();
+    mat4.fromTranslation(translateToOrigin, vec3.negate(vec3.create(), center));
+
+    // Create the rotation matrix
+    var rotationMatrix = mat4.create();
+    console.log("HELLO {" + yawInRadians + "}");
+    mat4.rotate(rotationMatrix, rotationMatrix, yawInRadians, [0,1,0]);
+
+    // Create a translation matrix to move the center back to its original position
+    const translateBack = mat4.create();
+    mat4.fromTranslation(translateBack, center);
+
+    // Combine matrices
+    mat4.multiply(finalRotMatrix, finalRotMatrix, translateBack);
+    mat4.multiply(finalRotMatrix, finalRotMatrix, rotationMatrix);
+    mat4.multiply(finalRotMatrix, finalRotMatrix, translateToOrigin);
+
+    return finalRotMatrix;
 }
 
 // handle all key presses
@@ -620,12 +644,12 @@ function handleKeyEvent(event) {
         case 'k': // left
             tAmt *= -1;
         case ';': // right
-            if( selected ) {
+            if (selected) {
                 // create translation matrix exactly for tAmt 
                 var translationMatrix = mat4.create();
                 mat4.translate(
-                    translationMatrix, 
-                    translationMatrix, 
+                    translationMatrix,
+                    translationMatrix,
                     vec3.scale(vec3.create(), left, tAmt)
                 );
                 // apply this matrix to the existing translation matrix
@@ -636,8 +660,8 @@ function handleKeyEvent(event) {
                 );
                 // update centers
                 vec3.transformMat4(
-                    modelCenters[selectedModelIdx], 
-                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx],
+                    modelCenters[selectedModelIdx],
                     translationMatrix
                 );
             }
@@ -647,12 +671,12 @@ function handleKeyEvent(event) {
         case 'l': // backwrd
             tAmt *= -1;
         case 'o': // forward
-            if( selected ) {
+            if (selected) {
                 // create translation matrix exactly for tAmt 
                 var translationMatrix = mat4.create();
                 mat4.translate(
-                    translationMatrix, 
-                    translationMatrix, 
+                    translationMatrix,
+                    translationMatrix,
                     vec3.scale(vec3.create(), forward, tAmt)
                 );
                 // apply this matrix to the existing translation matrix
@@ -663,8 +687,8 @@ function handleKeyEvent(event) {
                 );
                 // update centers
                 vec3.transformMat4(
-                    modelCenters[selectedModelIdx], 
-                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx],
+                    modelCenters[selectedModelIdx],
                     translationMatrix
                 );
             }
@@ -674,12 +698,12 @@ function handleKeyEvent(event) {
         case 'i': // up
             tAmt *= -1;
         case 'p': // down
-            if( selected ) {
+            if (selected) {
                 // create translation matrix exactly for tAmt 
                 var translationMatrix = mat4.create();
                 mat4.translate(
-                    translationMatrix, 
-                    translationMatrix, 
+                    translationMatrix,
+                    translationMatrix,
                     vec3.scale(vec3.create(), up, tAmt)
                 );
                 // apply this matrix to the existing translation matrix
@@ -690,16 +714,32 @@ function handleKeyEvent(event) {
                 );
                 // update centers
                 vec3.transformMat4(
-                    modelCenters[selectedModelIdx], 
-                    modelCenters[selectedModelIdx], 
+                    modelCenters[selectedModelIdx],
+                    modelCenters[selectedModelIdx],
                     translationMatrix
+                );
+            }
+            break;
+        // rotate selected model around view Y (yaw)
+        case 'K':
+            yawInRadians *= -1;
+        case ':':
+            if (selected) {
+                // create rotation matrix
+                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], yawInRadians)
+
+                // update rotation matrix
+                mat4.multiply(
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrix
                 );
             }
             break;
         default:
         // Do nothing
     }
-    console.log(selectedModelIdx);
+    // console.log(selectedModelIdx);
 }
 
 /* MAIN -- HERE is where execution begins after window load */
