@@ -538,7 +538,7 @@ function scaleByFactor(center, scalingFactor) {
     return scaleMatrix;
 }
 
-function innerRotate(center, yawInRadians) {
+function innerRotate(center, radians, axis) {
     const finalRotMatrix = mat4.create();
 
     // Create a translation matrix to move the center to the origin
@@ -547,8 +547,7 @@ function innerRotate(center, yawInRadians) {
 
     // Create the rotation matrix
     var rotationMatrix = mat4.create();
-    console.log("HELLO {" + yawInRadians + "}");
-    mat4.rotate(rotationMatrix, rotationMatrix, yawInRadians, [0,1,0]);
+    mat4.rotate(rotationMatrix, rotationMatrix, radians, axis);
 
     // Create a translation matrix to move the center back to its original position
     const translateBack = mat4.create();
@@ -726,7 +725,7 @@ function handleKeyEvent(event) {
         case ':':
             if (selected) {
                 // create rotation matrix
-                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], yawInRadians)
+                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], yawInRadians, lookUp);
 
                 // update rotation matrix
                 mat4.multiply(
@@ -736,6 +735,40 @@ function handleKeyEvent(event) {
                 );
             }
             break;
+        
+        case 'O':
+            pitchInRadians *= -1;
+        case 'L':
+            if (selected) {
+                // create rotation matrix
+                var axis = vec3.create();
+                vec3.cross(axis, lookAt, lookUp);
+                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, axis);
+
+                // update rotation matrix
+                mat4.multiply(
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrix
+                );
+            }
+            break;
+
+            case 'I':
+                pitchInRadians *= -1;
+            case 'P':
+                if (selected) {
+                    // create rotation matrix
+                    var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, lookAt);
+    
+                    // update rotation matrix
+                    mat4.multiply(
+                        rotationMatrices[selectedModelIdx],
+                        rotationMatrices[selectedModelIdx],
+                        rotationMatrix
+                    );
+                }
+                break;
         default:
         // Do nothing
     }
