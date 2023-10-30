@@ -117,9 +117,72 @@ function calculateTriangleCenter(vertex1, vertex2, vertex3) {
     return vec3.fromValues(centerX, centerY, centerZ);
 }
 
+function normalize(pt) {
+    let mag = Math.sqrt(pt[0] * pt[0] + pt[1] * pt[1] + pt[2] * pt[2]);
+    return [pt[0] / mag, pt[1] / mag, pt[2] / mag];
+}
+
+function genEllipsoidTris(e, latitudeDivisions, longitudeDivisions) {
+    var tris =
+        {
+            "material": { "ambient": e.ambient, "diffuse": e.diffuse, "specular": e.specular, "n": e.n},
+            "vertices": [],
+            "normals": [],
+            "triangles": []
+        };
+
+    for (let lat = 0; lat <= latitudeDivisions; lat++) {
+        const theta = (lat * Math.PI) / latitudeDivisions;
+        const sinTheta = Math.sin(theta);
+        const cosTheta = Math.cos(theta);
+
+        for (let lon = 0; lon <= longitudeDivisions; lon++) {
+            const phi = (lon * 2 * Math.PI) / longitudeDivisions;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+
+            const x = e.a * sinTheta * cosPhi + e.x;
+            const y = e.b * sinTheta * sinPhi + e.y;
+            const z = e.c * cosTheta + e.z;
+
+            tris["vertices"].push([x, y, z]);
+
+            let norm = normalize([x - e.x, y - e.y, z - e.z]);
+            tris["normals"].push(norm);
+
+            // console.log(x, y, z);
+            // console.log(norm[0],norm[1],norm[2]);
+
+            if (lat < latitudeDivisions && lon < longitudeDivisions) {
+                const first = lat * (longitudeDivisions + 1) + lon;
+                const second = first + longitudeDivisions + 1;
+
+                // Define two triangles for each quad
+                tris["triangles"].push( [first, second, first + 1] );
+                tris["triangles"].push( [second, second + 1, first + 1] );
+            }
+        }
+    }
+
+    return tris;
+}
+
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
-    var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles");
+    // var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles");
+    var e1 = {"x": 0.75, "y": 0.75, "z": 0.5, "a":0.2, "b":0.15, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.0,0.0,0.6], "specular": [0.3,0.3,0.3], "n":5};
+    var e2 = {"x": 0.75, "y": 0.25, "z": 0.5, "a":0.15, "b":0.2, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.6,0.0,0.6], "specular": [0.3,0.3,0.3], "n":7}
+    var e3 = {"x": 0.5, "y": 0.5, "z": 0.5, "a":0.2, "b":0.3, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.6,0.6,0.0], "specular": [0.3,0.3,0.3], "n":9}
+    // var inputTriangles = [genEllipsoidTris(e1,250,250), genEllipsoidTris(e2,250,250), genEllipsoidTris(e3,250,250)]; 
+    // var inputTriangles = [genEllipsoidTris(e1,250,2s50)];
+    let t1 = genEllipsoidTris(e1,50,50);
+    let t2 = genEllipsoidTris(e2,50,50);
+    let t3 = genEllipsoidTris(e3,50,50);
+    var inputTriangles = [t1,t2,t3]
+    // var inputTriangles = [genEllipsoidTris(e2,250,250), genEllipsoidTris(e1,250,250)];
+    console.log(inputTriangles);
+    // exsdfsdf(0);
+
     if (inputTriangles != String.null) {
         var whichSetVert; // index of vertex in current triangle set
         var whichSetTri; // index of triangle in current triangle set
@@ -242,8 +305,6 @@ function loadTriangles() {
         modelIndicesBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, modelIndicesBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelIndices), gl.STATIC_DRAW);
-
-        // console.log(modelCenters);
     } // end if triangles found
 } // end load triangles
 
@@ -735,7 +796,7 @@ function handleKeyEvent(event) {
                 );
             }
             break;
-        
+
         case 'O':
             pitchInRadians *= -1;
         case 'L':
@@ -754,21 +815,21 @@ function handleKeyEvent(event) {
             }
             break;
 
-            case 'I':
-                pitchInRadians *= -1;
-            case 'P':
-                if (selected) {
-                    // create rotation matrix
-                    var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, lookAt);
-    
-                    // update rotation matrix
-                    mat4.multiply(
-                        rotationMatrices[selectedModelIdx],
-                        rotationMatrices[selectedModelIdx],
-                        rotationMatrix
-                    );
-                }
-                break;
+        case 'I':
+            pitchInRadians *= -1;
+        case 'P':
+            if (selected) {
+                // create rotation matrix
+                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, lookAt);
+
+                // update rotation matrix
+                mat4.multiply(
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrices[selectedModelIdx],
+                    rotationMatrix
+                );
+            }
+            break;
         default:
         // Do nothing
     }
@@ -778,12 +839,16 @@ function handleKeyEvent(event) {
 /* MAIN -- HERE is where execution begins after window load */
 function main() {
 
+    // var ellipsoid = {"x": 0.75, "y": 0.75, "z": 0.5, "a":0.2, "b":0.15, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.0,0.0,0.6], "specular": [0.3,0.3,0.3], "n":5};
+    // genEllipsoidTris(ellipsoid,10,10);
+    // exit(0);
+
     setupWebGL(); // set up the webGL environment
     loadTriangles(); // load in the triangles from tri file
     setupShaders(); // setup the webGL shaders
     renderTriangles(); // draw the triangles using webGL
 
-    console.log(modelMatrices.length);
+    // console.log(modelMatrices.length);
 
     document.addEventListener('keydown', handleKeyEvent); // handle key inputs
 
