@@ -4,10 +4,10 @@
 const WIN_Z = 0;  // default graphics window z coord in world space
 const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in world space
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles2.json"; // triangles file loc
 // const INPUT_LIGHTS_URL = "https://ncsucgclass.github.io/prog3/lights.json"; // lights file loc
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
-//const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
+const INPUT_KIRBY_URL = "https://raw.githubusercontent.com/yousifman/prog3/gh-pages/Kirby.json";
 
 var lightPos = new Float32Array([-0.5, 1.5, -0.5]);
 var lightAmbient = new Float32Array([1.0, 1.0, 1.0]);
@@ -15,7 +15,6 @@ var lightDiffuse = new Float32Array([1.0, 1.0, 1.0]);
 var lightSpecular = new Float32Array([1.0, 1.0, 1.0]);
 
 var Eye = new vec4.fromValues(0.5, 0.5, -0.5, 1.0); // default eye position in world space
-// var Eye = new vec4.fromValues(0,0,0,1.0);
 var lookAt = vec3.fromValues(0, 0, 1); // The point the camera is looking at (default: origin)
 var lookUp = vec3.fromValues(0, 1, 0); // The up vector (default: positive Y-axis as up)
 
@@ -186,9 +185,16 @@ function loadTriangles() {
                 inputTriangles.push(genEllipsoidTris(inputEllipsoids[i],50,50));
             break;
         case 2:
-            inputTriangles = getJSONFile("Kirby.json", "triangles");
+            inputTriangles = getJSONFile(INPUT_KIRBY_URL, "triangles");
             break;
     }
+
+    //reset model state
+    modelMatrices = []; 
+    scaleMatrices = []; 
+    translationMatrices = []; 
+    rotationMatrices = []; 
+    modelCenters = []; 
 
     if (inputTriangles != String.null) {
         var whichSetVert; // index of vertex in current triangle set
@@ -607,6 +613,8 @@ function scaleByFactor(center, scalingFactor) {
 }
 
 function innerRotate(center, radians, axis) {
+    console.log("center", center[0], center[1], center[2]);
+    console.log("axis", axis[0], axis[1], axis[2]);
     const finalRotMatrix = mat4.create();
 
     // Create a translation matrix to move the center to the origin
@@ -809,9 +817,7 @@ function handleKeyEvent(event) {
         case 'L':
             if (selected) {
                 // create rotation matrix
-                var axis = vec3.create();
-                vec3.cross(axis, lookAt, lookUp);
-                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, axis);
+                var rotationMatrix = innerRotate(modelCenters[selectedModelIdx], pitchInRadians, left);
 
                 // update rotation matrix
                 mat4.multiply(
@@ -857,10 +863,6 @@ function handleKeyEvent(event) {
 
 /* MAIN -- HERE is where execution begins after window load */
 function main() {
-
-    // var ellipsoid = {"x": 0.75, "y": 0.75, "z": 0.5, "a":0.2, "b":0.15, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.0,0.0,0.6], "specular": [0.3,0.3,0.3], "n":5};
-    // genEllipsoidTris(ellipsoid,10,10);
-    // exit(0);
 
     setupWebGL(); // set up the webGL environment
     loadTriangles(); // load in the triangles from tri file
