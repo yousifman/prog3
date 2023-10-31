@@ -4,7 +4,7 @@
 const WIN_Z = 0;  // default graphics window z coord in world space
 const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in world space
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles2.json"; // triangles file loc
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
 // const INPUT_LIGHTS_URL = "https://ncsucgclass.github.io/prog3/lights.json"; // lights file loc
 const INPUT_ELLIPSOIDS_URL = "https://ncsucgclass.github.io/prog3/ellipsoids.json";
 //const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
@@ -55,6 +55,10 @@ var modelCenters = []; // array of model centers
 var selected = false; // whether a model is selected or not
 var selectedModelIdx = 0; // current model index
 var numModels; // max number of models 
+
+// whether to render triangles, ellipsoids, or kirby
+var renderSetting = 0;
+const NUM_SETTINGS = 3;
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -169,19 +173,22 @@ function genEllipsoidTris(e, latitudeDivisions, longitudeDivisions) {
 
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
-    // var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles");
-    var e1 = {"x": 0.75, "y": 0.75, "z": 0.5, "a":0.2, "b":0.15, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.0,0.0,0.6], "specular": [0.3,0.3,0.3], "n":5};
-    var e2 = {"x": 0.75, "y": 0.25, "z": 0.5, "a":0.15, "b":0.2, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.6,0.0,0.6], "specular": [0.3,0.3,0.3], "n":7}
-    var e3 = {"x": 0.5, "y": 0.5, "z": 0.5, "a":0.2, "b":0.3, "c":0.1, "ambient": [0.1,0.1,0.1], "diffuse": [0.6,0.6,0.0], "specular": [0.3,0.3,0.3], "n":9}
-    // var inputTriangles = [genEllipsoidTris(e1,250,250), genEllipsoidTris(e2,250,250), genEllipsoidTris(e3,250,250)]; 
-    // var inputTriangles = [genEllipsoidTris(e1,250,2s50)];
-    let t1 = genEllipsoidTris(e1,50,50);
-    let t2 = genEllipsoidTris(e2,50,50);
-    let t3 = genEllipsoidTris(e3,50,50);
-    var inputTriangles = [t1,t2,t3]
-    // var inputTriangles = [genEllipsoidTris(e2,250,250), genEllipsoidTris(e1,250,250)];
-    console.log(inputTriangles);
-    // exsdfsdf(0);
+    
+    var inputTriangles = [];
+    switch (renderSetting) {
+        case 0:
+            inputTriangles = getJSONFile(INPUT_TRIANGLES_URL, "triangles");
+            break
+        case 1:
+            // load in input ellipsoids and convert them to triangles
+            var inputEllipsoids = getJSONFile(INPUT_ELLIPSOIDS_URL, "ellipsoids");
+            for(var i = 0; i < inputEllipsoids.length; i++)
+                inputTriangles.push(genEllipsoidTris(inputEllipsoids[i],50,50));
+            break;
+        case 2:
+            inputTriangles = getJSONFile("Kirby.json", "triangles");
+            break;
+    }
 
     if (inputTriangles != String.null) {
         var whichSetVert; // index of vertex in current triangle set
@@ -829,6 +836,18 @@ function handleKeyEvent(event) {
                     rotationMatrix
                 );
             }
+            break;
+
+        // toggle the 'make it your own' option
+        case '!' :
+            selectedModelIdx = 0;
+            renderSetting++;
+            renderSetting = renderSetting == NUM_SETTINGS ? 0 : renderSetting;
+            loadTriangles();
+            break;
+
+        case '1':
+            console.log(modelCenters[3]);
             break;
         default:
         // Do nothing
